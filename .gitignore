@@ -1,0 +1,21 @@
+venv/
+__pycache__/
+build/
+*.pyc
+
+# PyInstaller
+dist/
+
+# Local/runtime settings
+settings.json
+
+# IDE/editor files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Project documents
+Desktop Companion.docx
