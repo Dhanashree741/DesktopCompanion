@@ -13,6 +13,9 @@ settings.json
 .vscode/
 .idea/
 
+# opencode
+.opencode/
+
 # OS files
 .DS_Store
 Thumbs.db
