@@ -60,6 +60,9 @@ DEFAULT_SETTINGS = {
     # Rolling per-day session counter, reset whenever sessions_date
     # differs from the current date.
     "sessions_today": 0,
+    # Accumulated seconds actually worked today (reset the same way as
+    # sessions_today), used for the end-of-day report.
+    "work_seconds_today": 0,
     "sessions_date": "",
 }
 
@@ -88,6 +91,7 @@ CHARACTER_IMAGES = {
 # Expected future sound effects. Existing files simply play; missing
 # files are skipped silently so the app never crashes without sounds.
 SOUND_NAMES = [
+    "work_start.wav",
     "reminder.wav",
     "break_start.wav",
     "break_over.wav",
@@ -111,12 +115,13 @@ IDLE_ANIMATIONS = {
 
 REMINDER_MESSAGES = {
     "first": {
-        "message": "You've been at it for a while! 👀\nHow about a little break?",
-        "okay_text": "Okay 👍",
-        "later_text": "Later 😭",
+    "message": "You've been working for a while. 👀\nTime for a quick break?",
+    "okay_text": "Okay 👍",
+    "later_text": "Later 😭",
     },
+
     "second": {
-        "message": "Bro... your eyes need a break. 😭\nSeriously. Go rest!",
+        "message": "Bro... your eyes need a break. 😭",
         "yes_text": "Yes 😭",
         "no_text": "Noo 😏",
     },
@@ -124,27 +129,27 @@ REMINDER_MESSAGES = {
 
 CHARACTER_DIALOGUE = {
     "greeting": "Hey! 👋",
-    "second_greeting": "Bro... 👁️👁️",
-    "accept": "That's the spirit! 😌\nYour eyes will thank you.",
-    "first_refusal": "Alright, I'll give you a little more time... 👀",
-    "second_accept": "That's what I thought. 😌",
-    "second_refusal": "Okay, suit yourself. 😏\nBut I'll be back. 👀",
-    "break_done": "Break complete! Ready for another round? 🚀",
-    "break_almost": "Almost ready to get back at it 💪",
-    "returning_to_work": "Alright!\nBack to work. 💪",
-    "onboarding_intro": "Hey! I'm your Desktop Companion! 👋\nI'll remind you to take regular breaks\nwhile you're working.",
-    "onboarding_setup": "Let's set up your schedule! 💪",
-    "onboarding_complete": "Perfect! I'll remind you after {minutes} minutes. 🙂",
-    "stop": "Okay! I'll stop bothering you. 😌",
-    "start_work_prompt": "Ready to work? 👋",
-    "start_work_yes": "That's the spirit!\nLet's do this. 💪",
-    "work_duration_question": "How long do you want to work? 💪",
-    "schedule_confirm": "Got it! I'll come back at {time} 🕒",
-    "schedule_past": "That time already passed!\nPick a future time. 🙂",
-    "scheduled_prompt": "It's time to work! 💪",
-    "scheduled_delayed": "Okay, take your time!\nI'll be right here. 🙂",
-    "resting_prompt": "I'll be here when you're ready 🙂",
-    "schedule_waiting": "I'll remind you when it's time to work 🙂",
+    "second_greeting": "Bro... 👀",
+    "accept": "Nice! 😌\nYour eyes will thank you.",
+    "first_refusal": "Alright... a little more time. 👀",
+    "second_accept": "Knew you'd listen. 😌",
+    "second_refusal": "Fine... but I'm coming back. 👀",
+    "break_done": "Ready to get back to it? 🙂",
+    "break_almost": "Almost there! 💪",
+    "break_continue": "Back to it! 💪",
+    "returning_to_work": "Alright! Back to work. 💪",
+    "stop": "Alright, I'll stop bothering you. 😌",
+    "work_duration_question": "How long should you work\nand break for? 💪",
+    "report": "Today's report 📊\nWorked {duration}\n{sessions} {session_word}.\nNice work! 💪",
+    "onboarding_intro": "Hey! I'm your Desktop Companion! 👋\nI'll remind you when it's time for a break.",
+    "onboarding_setup": "Let's set your work rhythm. 💪",
+    "onboarding_complete": "You're all set! 🙂",
+    "start_work_prompt": "Ready to work? 🙂",
+    "start_work_yes": "Okay! Let's work for {minutes} minutes. 💪",
+    "scheduled_prompt": "It's {time}! Ready to work? 🙂",
+    "scheduled_delayed": "No worries! I'll be here when you're ready. 🙂",
+    "schedule_confirm": "You're all set!\nI'll remind you at {time} 🕒",
+    "schedule_past": "That time has already passed!\nPick a future time. 🙂",
 }
 
 # Short friendly flavour messages shown while a work session runs. One
@@ -181,8 +186,8 @@ PEEK_AUTO_HIDE_MS = 5000
 # state. This is purely additive and never touches the reminder timer.
 #
 # Kept to one short line so the character introduces itself quickly and
-# then hands straight over to the start-work prompt ("Ready to work? 👋"),
-# which offers the "Start now" / "Choose a time" choices.
+# then hands straight over to the start-work prompt ("Ready to start
+# working? 🙂"), which offers the Start working / ✕ choices.
 STARTUP_INTRO = [
     (
         "Hey! I'm your Desktop Companion 👋\nI'll remind you to take regular breaks.",
@@ -417,6 +422,10 @@ class DialoguePanel(QWidget):
             Qt.PointingHandCursor
         )
 
+        self.close_button.setToolTip(
+            "Close"
+        )
+
         self.close_button.setStyleSheet("""
             QPushButton {
                 background: transparent;
@@ -439,6 +448,28 @@ class DialoguePanel(QWidget):
         """)
 
         self.close_button.hide()
+
+        self._place_close_button()
+
+    def _place_close_button(self):
+
+        # The dismiss (✕) button is anchored to the top-right corner of
+        # the bubble, clear of the message text and the divider line,
+        # instead of sitting below the message next to the choices.
+        self.close_button.move(
+            self.width() - self.close_button.width() - 8,
+            8
+        )
+
+        self.close_button.raise_()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._place_close_button()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._place_close_button()
 
     def paintEvent(self, event):
 
@@ -800,6 +831,7 @@ def load_settings():
                     "scheduled_start",
                     "prompt_dismissed_on",
                     "sessions_today",
+                    "work_seconds_today",
                     "sessions_date",
                 ):
                     if key in data:
@@ -839,9 +871,9 @@ def save_settings(settings):
 class SettingsWindow(QDialog):
 
     MODE_OPTIONS = [
-        ("three_times", "Remind me three times"),
+        ("three_times", "Three times"),
         ("keep_reminding", "Keep reminding me"),
-        ("stop_after_one", "Stop after one reminder"),
+        ("stop_after_one", "Once"),
     ]
 
     def __init__(
@@ -979,16 +1011,38 @@ class SettingsWindow(QDialog):
         )
 
         # -----------------------------
-        # WORK INTERVAL
+        # WORK RHYTHM
+        # ("Work for" and "Break for" are chosen together, once, so a
+        # break never needs an extra question when it starts.)
         # -----------------------------
 
-        work_label = QLabel(
-            "How long should you work\nbefore I remind you?"
+        rhythm_header = QLabel(
+            "WORK RHYTHM"
         )
 
-        self.work_spin = QSpinBox()
+        rhythm_header.setStyleSheet(
+            "color: #8A6245; font-size: 11px;"
+        )
+
+        layout.addWidget(
+            rhythm_header
+        )
+
+        layout.addSpacing(
+            2
+        )
+
+        work_label = QLabel(
+            "Work for:"
+        )
+
+        layout.addWidget(
+            work_label
+        )
 
         # Positive minutes only; zero/negative are invalid.
+        self.work_spin = QSpinBox()
+
         self.work_spin.setRange(
             1,
             1440
@@ -1008,28 +1062,31 @@ class SettingsWindow(QDialog):
         )
 
         layout.addWidget(
-            work_label
+            self.work_spin
         )
 
-        layout.addWidget(
-            self.work_spin
+        layout.addLayout(
+            _add_preset_chips(
+                self.work_spin,
+                (15, 25, 30, 45, 60)
+            )
         )
 
         layout.addSpacing(
             8
         )
 
-        # -----------------------------
-        # BREAK DURATION
-        # -----------------------------
-
         break_label = QLabel(
-            "How long should your break be?"
+            "Break for:"
         )
 
-        self.break_spin = QSpinBox()
+        layout.addWidget(
+            break_label
+        )
 
         # Positive minutes only; zero/negative are invalid.
+        self.break_spin = QSpinBox()
+
         self.break_spin.setRange(
             1,
             1440
@@ -1049,11 +1106,14 @@ class SettingsWindow(QDialog):
         )
 
         layout.addWidget(
-            break_label
+            self.break_spin
         )
 
-        layout.addWidget(
-            self.break_spin
+        layout.addLayout(
+            _add_preset_chips(
+                self.break_spin,
+                (5, 10, 15, 30)
+            )
         )
 
         layout.addSpacing(
@@ -1109,7 +1169,7 @@ class SettingsWindow(QDialog):
         # -----------------------------
 
         delay_label = QLabel(
-            'If I click "Later", remind me again after'
+            'Later → remind me in:'
         )
 
         self.delay_spin = QSpinBox()
@@ -1596,17 +1656,62 @@ class ScheduleTimeDialog(QDialog):
 # WORK DURATION DIALOG
 # ============================================================
 
+def _add_preset_chips(target_spin, presets):
+
+    # Shared preset-chip row: one small button per duration, each filling
+    # the target spin box when clicked. Used by the work-rhythm dialog and
+    # the settings window so the presets always behave identically.
+    row = QHBoxLayout()
+
+    row.setSpacing(
+        6
+    )
+
+    for minutes in sorted(presets):
+
+        preset_button = QPushButton(
+            f"{minutes}m"
+        )
+
+        preset_button.setFixedSize(
+            54,
+            30
+        )
+
+        preset_button.clicked.connect(
+            lambda checked,
+            value=minutes: target_spin.setValue(
+                value
+            )
+        )
+
+        row.addWidget(
+            preset_button
+        )
+
+    return row
+
+
 class WorkDurationDialog(QDialog):
 
-    # Beginner-friendly "How long do you want to work?" selector. Simple
-    # preset buttons fill the spin box; the big confirm button starts the
-    # work session. Same pixel-art styling as the rest of the app.
+    # Beginner-friendly "Work rhythm" selector: the work duration and the
+    # break duration are chosen together before starting, so a break never
+    # needs an extra question when it begins. Preset chips fill each spin
+    # box; the big confirm button starts the work session. Same pixel-art
+    # styling as the rest of the app.
     PRESETS = [
         15,
         25,
         30,
         45,
         60,
+    ]
+
+    BREAK_PRESETS = [
+        5,
+        10,
+        15,
+        30,
     ]
 
     def __init__(
@@ -1617,7 +1722,7 @@ class WorkDurationDialog(QDialog):
         super().__init__(parent)
 
         self.setWindowTitle(
-            "How long do you want to work?"
+            "Set up your work rhythm"
         )
 
         self.setModal(
@@ -1665,7 +1770,7 @@ class WorkDurationDialog(QDialog):
         layout = QVBoxLayout()
 
         title = QLabel(
-            "HOW LONG DO YOU WANT\nTO WORK? 💪"
+            "SET UP YOUR\nWORK RHYTHM 💪"
         )
 
         title.setAlignment(
@@ -1685,66 +1790,19 @@ class WorkDurationDialog(QDialog):
         )
 
         # ------------------------------------------------
-        # PRESET CHIPS
+        # WORK FOR
         # ------------------------------------------------
 
-        preset_row = QHBoxLayout()
-
-        preset_row.setSpacing(
-            6
+        work_label = QLabel(
+            "Work for:"
         )
 
-        default_minutes = int(
-            settings.get(
-                "work_interval_minutes",
-                30
-            )
-        )
-
-        for minutes in self.PRESETS:
-
-            preset_button = QPushButton(
-                f"{minutes}m"
-            )
-
-            preset_button.setFixedSize(
-                54,
-                30
-            )
-
-            preset_button.clicked.connect(
-                lambda checked,
-                value=minutes: self.spin.setValue(
-                    value
-                )
-            )
-
-            preset_row.addWidget(
-                preset_button
-            )
-
-        layout.addLayout(
-            preset_row
+        layout.addWidget(
+            work_label
         )
 
         layout.addSpacing(
-            12
-        )
-
-        # ------------------------------------------------
-        # CUSTOM MINUTES SPIN
-        # ------------------------------------------------
-
-        spin_row = QHBoxLayout()
-
-        spin_row.addStretch()
-
-        spin_label = QLabel(
-            "Minutes:"
-        )
-
-        spin_row.addWidget(
-            spin_label
+            4
         )
 
         self.spin = QSpinBox()
@@ -1759,17 +1817,121 @@ class WorkDurationDialog(QDialog):
         )
 
         self.spin.setValue(
-            default_minutes
+            int(
+                settings.get(
+                    "work_interval_minutes",
+                    30
+                )
+            )
         )
 
-        spin_row.addWidget(
+        # Always present the duration choices smallest -> largest so the
+        # order stays intuitive for a child no matter how the list is
+        # later edited.
+        layout.addLayout(
+            _add_preset_chips(
+                self.spin,
+                self.PRESETS
+            )
+        )
+
+        layout.addSpacing(
+            6
+        )
+
+        work_spin_row = QHBoxLayout()
+
+        work_spin_row.addStretch()
+
+        work_spin_label = QLabel(
+            "Minutes:"
+        )
+
+        work_spin_row.addWidget(
+            work_spin_label
+        )
+
+        work_spin_row.addWidget(
             self.spin
         )
 
-        spin_row.addStretch()
+        work_spin_row.addStretch()
 
         layout.addLayout(
-            spin_row
+            work_spin_row
+        )
+
+        layout.addSpacing(
+            12
+        )
+
+        # ------------------------------------------------
+        # BREAK FOR
+        # ------------------------------------------------
+
+        break_label = QLabel(
+            "Break for:"
+        )
+
+        layout.addWidget(
+            break_label
+        )
+
+        layout.addSpacing(
+            4
+        )
+
+        self.break_spin = QSpinBox()
+
+        self.break_spin.setRange(
+            1,
+            1440
+        )
+
+        self.break_spin.setSuffix(
+            " min"
+        )
+
+        self.break_spin.setValue(
+            int(
+                settings.get(
+                    "break_duration_minutes",
+                    5
+                )
+            )
+        )
+
+        layout.addLayout(
+            _add_preset_chips(
+                self.break_spin,
+                self.BREAK_PRESETS
+            )
+        )
+
+        layout.addSpacing(
+            6
+        )
+
+        break_spin_row = QHBoxLayout()
+
+        break_spin_row.addStretch()
+
+        break_spin_label = QLabel(
+            "Minutes:"
+        )
+
+        break_spin_row.addWidget(
+            break_spin_label
+        )
+
+        break_spin_row.addWidget(
+            self.break_spin
+        )
+
+        break_spin_row.addStretch()
+
+        layout.addLayout(
+            break_spin_row
         )
 
         layout.addSpacing(
@@ -1826,6 +1988,11 @@ class WorkDurationDialog(QDialog):
     def selected_minutes(self):
         return int(
             self.spin.value()
+        )
+
+    def selected_break_minutes(self):
+        return int(
+            self.break_spin.value()
         )
 
 
@@ -1974,9 +2141,6 @@ class Companion(QWidget):
         # Companion never auto-starts a work session; the user must
         # confirm they are starting now, schedule a start time, or
         # dismiss the prompt (via the panel's ✕) for the day.
-        self.start_now_button = PixelChoice(
-            "Start now ▶"
-        )
 
         # Opens the schedule picker so the companion returns at a
         # specific time and asks to start work then.
@@ -1994,7 +2158,14 @@ class Companion(QWidget):
         # Visible while a schedule is pending (and from the tray) so a
         # work session can be started later without relaunching the app.
         self.start_work_button = PixelChoice(
-            "Start working ▶"
+            "Start Working ▶"
+        )
+
+        # Break-completion choice: once a break is over the companion asks
+        # whether to begin the next work session. Nothing starts until the
+        # user confirms.
+        self.done_button = PixelChoice(
+            "Done for today ✕"
         )
 
         for button in (
@@ -2007,12 +2178,13 @@ class Companion(QWidget):
         ):
             button.setFixedWidth(115)
 
-        # The two startup choices (and the scheduled-start pair) share
+        # The startup choices (and the scheduled-start pair) share
         # one consistent width so they stay evenly balanced in the row.
-        self.start_now_button.setFixedWidth(140)
         self.choose_time_button.setFixedWidth(140)
         self.not_yet_button.setFixedWidth(140)
         self.start_work_button.setFixedWidth(140)
+
+        self.done_button.setFixedWidth(140)
 
         # Connections
         self.ok_button.clicked.connect(
@@ -2039,7 +2211,7 @@ class Companion(QWidget):
             self._open_settings
         )
 
-        self.start_now_button.clicked.connect(
+        self.start_work_button.clicked.connect(
             self.accept_start_work
         )
 
@@ -2051,14 +2223,14 @@ class Companion(QWidget):
             self._choose_schedule_time
         )
 
-        self.start_work_button.clicked.connect(
-            self.accept_start_work
+        self.done_button.clicked.connect(
+            self.stop_reminders
         )
 
         # Current interactive prompt context, used to restore the right
         # state if the user cancels the work-duration question:
-        #   None               -> quiet/idle (e.g. tray Start Work)
-        #   "start"            -> the two-choice startup prompt
+        #   None               -> quiet/idle (e.g. tray Start Working)
+        #   "start"            -> the shared start prompt
         #   "scheduled"        -> the scheduled-start prompt
         #   "schedule_waiting" -> parked while a start time is pending
         self._active_prompt = None
@@ -2070,10 +2242,10 @@ class Companion(QWidget):
         self.no_button.hide()
         self.stop_button.hide()
         self.onboarding_settings_button.hide()
-        self.start_now_button.hide()
         self.choose_time_button.hide()
         self.not_yet_button.hide()
         self.start_work_button.hide()
+        self.done_button.hide()
 
         # ====================================================
         # OPTIONS LAYOUT
@@ -2124,11 +2296,11 @@ class Companion(QWidget):
 
         button_layout.addStretch()
 
-        # Second options row: the two startup choices (Start now / Choose
-        # a time) and the scheduled-start pair (Start now / Not yet) live
-        # here. Only the pair relevant to the current prompt is shown, so
-        # exactly two evenly-spaced, equal-width buttons are visible at a
-        # time and the empty row collapses away.
+        # Second options row: the scheduled-start pair (Start working /
+        # Not yet) lives here, and the break-over prompt's "Choose a
+        # time" uses the same slot. Only the one relevant to the current
+        # prompt is shown, so exactly one equal-width button is visible
+        # at a time and the empty row collapses away.
         schedule_button_row = QHBoxLayout()
 
         schedule_button_row.setContentsMargins(
@@ -2145,10 +2317,6 @@ class Companion(QWidget):
         schedule_button_row.addStretch()
 
         schedule_button_row.addWidget(
-            self.start_now_button
-        )
-
-        schedule_button_row.addWidget(
             self.not_yet_button
         )
 
@@ -2157,6 +2325,30 @@ class Companion(QWidget):
         )
 
         schedule_button_row.addStretch()
+
+        # Third options row: the break-over "Done for today" (end the day
+        # with the report) sits below the primary round-continuing pair,
+        # so the exit action never outranks Start working / Done for today.
+        done_button_row = QHBoxLayout()
+
+        done_button_row.setContentsMargins(
+            0,
+            0,
+            0,
+            0
+        )
+
+        done_button_row.setSpacing(
+            14
+        )
+
+        done_button_row.addStretch()
+
+        done_button_row.addWidget(
+            self.done_button
+        )
+
+        done_button_row.addStretch()
 
         # ====================================================
         # DIALOGUE PANEL
@@ -2185,35 +2377,13 @@ class Companion(QWidget):
         )
 
         # -----------------------------
-        # DISMISS (✕) AREA
-        # -----------------------------
-
-        dialogue_layout.addSpacing(2)
-
-        close_row = QHBoxLayout()
-
-        close_row.setContentsMargins(
-            0,
-            0,
-            0,
-            0
-        )
-
-        close_row.addStretch()
-
-        close_row.addWidget(
-            self.dialogue_panel.close_button
-        )
-
-        dialogue_layout.addLayout(
-            close_row
-        )
-
-        # -----------------------------
         # OPTIONS AREA
         # -----------------------------
 
-        dialogue_layout.addSpacing(6)
+        # Tight spacing keeps the message and the choices close together;
+        # the ✕ close button is anchored to the top-right of the bubble
+        # (see DialoguePanel) and takes no vertical space here.
+        dialogue_layout.addSpacing(4)
 
         dialogue_layout.addLayout(
             button_layout
@@ -2221,6 +2391,15 @@ class Companion(QWidget):
 
         dialogue_layout.addLayout(
             schedule_button_row
+        )
+
+        # The break-over prompt stacks two choice rows (Start working above
+        # Done for today): give them the same 4px gap as the message, so the
+        # stacked buttons read as evenly spaced instead of glued together.
+        dialogue_layout.addSpacing(4)
+
+        dialogue_layout.addLayout(
+            done_button_row
         )
 
         self.dialogue_panel.setLayout(
@@ -2299,6 +2478,8 @@ class Companion(QWidget):
         # Track the current dialogue growth so we only re-fit (and
         # reposition) the window when the message area height changes.
         self._last_dialogue_delta = 0
+
+        self._last_dialogue_rows = 1
 
         self.message._resize_callback = (
             self._fit_dialogue
@@ -2449,9 +2630,35 @@ class Companion(QWidget):
             self._auto_hide_after_view
         )
 
+        # Single-shot fallback for the end-of-day report: if the user
+        # never closes it, the companion slides away after 5 minutes.
+        self.report_hide_timer = QTimer(
+            self
+        )
+
+        self.report_hide_timer.setSingleShot(
+            True
+        )
+
+        self.report_hide_timer.timeout.connect(
+            self._report_auto_slide
+        )
+
         # Wall-clock timestamps used to render the status line.
         self._status_started_at = None
         self._break_ends_at = None
+
+        # True once a running session's work interval has fully elapsed
+        # (its reminder fired). The day's report then counts that session
+        # as its full configured duration; extra "Later" time keeps
+        # accruing from the moment the user picks Later.
+        self._interval_folded = False
+
+        # True while the end-of-day report is on screen; the panel's ✕
+        # then dismisses the report instead of the start prompt, and a
+        # single-shot 5-minute fallback slides the companion away if the
+        # user never closes it.
+        self._report_open = False
 
         # Set when the character returns from a break to show the
         # break-completion dialogue instead of a reminder.
@@ -2484,8 +2691,13 @@ class Companion(QWidget):
         # True when the walk-in that is currently running was triggered by
         # a scheduled start. On arrival the companion shows the dedicated
         # scheduled-start prompt (work-start message + duration / Not yet)
-        # instead of the generic two-choice startup prompt.
+        # instead of the generic one.
         self._scheduled_prompt_on_arrival = False
+
+        # The human-readable time ("3:30 PM") of a schedule that just
+        # fired, captured before the schedule is cleared so the arrival
+        # prompt can say "It's 3:30 PM! Ready to work?".
+        self._scheduled_prompt_time = ""
 
         # Which route the startup sequence takes, decided exactly once at
         # startup and preserved for the whole greeting/animation chain.
@@ -2688,18 +2900,16 @@ class Companion(QWidget):
 
         # Returning-user post-introduction: if a start time was scheduled
         # (re-armed from a previous run) show the waiting confirmation;
-        # otherwise, if reminders are enabled, settle into the quiet
-        # resting state with the simple "Start working" action (no timers
-        # have been started, and the full two-choice startup prompt is
-        # reserved for first-run onboarding). If reminders are disabled
-        # just clear the bubble and settle into the normal standing/idle
-        # pose.
+        # otherwise, if reminders are enabled, settle into the shared
+        # start prompt ("Ready to start working?" with Start working / ✕).
+        # If reminders are disabled just clear the bubble and settle into
+        # the normal standing/idle pose.
         if self._scheduled_start_at is not None:
             self._show_schedule_waiting()
             return
 
         if self._should_prompt():
-            self._show_resting_start()
+            self._show_start_work_prompt()
         else:
             self.message.setText(
                 ""
@@ -2921,7 +3131,7 @@ class Companion(QWidget):
         )
 
         start_work_action = menu.addAction(
-            "Start Work"
+            "Start Working"
         )
 
         start_work_action.triggered.connect(
@@ -3085,9 +3295,10 @@ class Companion(QWidget):
             self._save_settings()
 
             if was_onboarding:
-                # Show the confirmation, then start the configured work
-                # interval (or go idle if reminders are disabled). No
-                # immediate break reminder is shown.
+                # Show the confirmation, then move to the shared start
+                # prompt ("Ready to start working?") so asking to start is
+                # never skipped. If reminders were disabled the companion
+                # just settles quietly: no timers, no prompts.
                 self._complete_onboarding()
             elif new_settings.get(
                 "enabled",
@@ -3096,6 +3307,15 @@ class Companion(QWidget):
                 # Re-enabled reminders from a quiet state -> ask whether
                 # the user is starting work now (no timer auto-starts).
                 self._show_start_work_prompt()
+            elif not new_settings.get(
+                "enabled",
+                False
+            ):
+                # Reminders were switched off: no timers or prompts may
+                # run, so cancel any pending schedule too.
+                self._clear_schedule(
+                    persist=True
+                )
 
     def _save_settings(self):
 
@@ -3104,6 +3324,47 @@ class Companion(QWidget):
         save_settings(
             self.settings
         )
+
+    def _count_visible_choice_rows(self):
+
+        # The dialogue stacks up to three rows of choice buttons. Rows
+        # with no visible button collapse to zero height, so only rows
+        # that actually hold a live button count here. The start prompt
+        # and scheduled prompts use one/two rows; the break-over prompt
+        # (Start working / Done for today) uses two.
+        row1 = (
+            self.ok_button,
+            self.later_button,
+            self.yes_button,
+            self.no_button,
+            self.stop_button,
+            self.onboarding_settings_button,
+            self.start_work_button,
+        )
+
+        row2 = (
+            self.not_yet_button,
+            self.choose_time_button,
+        )
+
+        row3 = (
+            self.done_button,
+        )
+
+        rows = 0
+
+        for buttons in (
+            row1,
+            row2,
+            row3,
+        ):
+            if any(
+                not button.isHidden()
+                for button in buttons
+            ):
+                rows += 1
+
+        return rows
 
     def _fit_dialogue(self, label_height):
 
@@ -3116,18 +3377,33 @@ class Companion(QWidget):
         if delta < 0:
             delta = 0
 
+        rows = self._count_visible_choice_rows()
+
+        # Each stacked button row beyond the first adds height so the
+        # bottom button never gets clipped or glued to the bubble's
+        # border: one-row prompts keep the compact 132px baseline, while
+        # the break-over prompt's stacked rows (Start working above Done
+        # for today) get a taller panel so "Done for today ✕" sits clear
+        # of the frame's bottom line.
+        extra_rows = max(0, rows - 1) * 26
+
         self.message.setFixedHeight(
             62 + delta
         )
 
         self.dialogue_panel.setFixedHeight(
-            132 + delta
+            132 + delta + extra_rows
         )
 
-        if delta == self._last_dialogue_delta:
+        if (
+            delta == self._last_dialogue_delta
+            and rows == self._last_dialogue_rows
+        ):
             return
 
         self._last_dialogue_delta = delta
+
+        self._last_dialogue_rows = rows
 
         self.adjustSize()
 
@@ -3148,11 +3424,137 @@ class Companion(QWidget):
             self.final_y
         )
 
+    def _roll_day_if_needed(self):
+
+        # If the stored "today" date differs from the real today, reset
+        # the per-day session counter and accumulated work time. Also
+        # fixes a settings file written by an older version that lacks the
+        # work-seconds key.
+        today = _today_str()
+
+        if self.settings.get(
+            "sessions_date",
+            ""
+        ) == today:
+            return
+
+        self.settings["sessions_date"] = today
+        self.settings["sessions_today"] = 0
+        self.settings["work_seconds_today"] = 0
+
+    def _add_work_seconds(self, secs):
+
+        # Add whole seconds to today's accumulated working time, resetting
+        # the per-day counters first if the calendar day changed so the
+        # session count and the work total always stay on the same day.
+        secs = int(
+            secs
+        )
+
+        if secs <= 0:
+            return
+
+        self._roll_day_if_needed()
+
+        self.settings["work_seconds_today"] = int(
+            self.settings.get(
+                "work_seconds_today",
+                0
+            )
+        ) + secs
+
+        self._save_settings()
+
+    def _accumulate_work_seconds(self):
+
+        # Fold the current session's leftover working time into the
+        # per-day total exactly once. A session whose full work interval
+        # elapsed is already counted by _on_reminder_fire (its chosen
+        # duration, so a 2-minute session plus a 5-minute session reports
+        # 7 minutes with no wall-clock drift); this only adds what is still
+        # unaccounted for, and a session still running when this is called
+        # (stopped early) contributes the actual seconds worked so far.
+        # The markers are cleared so the same time is never counted twice.
+        if self._status_started_at is None:
+            return
+
+        secs = int(
+            (
+                datetime.now()
+                - self._status_started_at
+            ).total_seconds()
+        )
+
+        self._status_started_at = None
+
+        self._interval_folded = False
+
+        self._add_work_seconds(
+            secs
+        )
+
+    def _format_duration(self, total_seconds):
+
+        # "3 h 15 m", "2 h", "10 m" style reading for the report.
+        minutes = int(
+            round(
+                int(total_seconds) / 60
+            )
+        )
+
+        if minutes <= 0:
+            return "a moment"
+
+        hours, mins = divmod(
+            minutes,
+            60
+        )
+
+        if hours and mins:
+            return f"{hours} h {mins} m"
+
+        if hours:
+            return f"{hours} h"
+
+        return f"{mins} m"
+
+    def _report_text(self):
+
+        # The end-of-day report shown when the user stops: total time
+        # worked and session count for today, with an encouraging line.
+        secs = int(
+            self.settings.get(
+                "work_seconds_today",
+                0
+            )
+        )
+
+        count = int(
+            self.settings.get(
+                "sessions_today",
+                0
+            )
+        )
+
+        return CHARACTER_DIALOGUE["report"].format(
+            duration=self._format_duration(
+                secs
+            ),
+            sessions=count,
+            session_word=(
+                "session" if count == 1 else "sessions"
+            ),
+        )
+
     def _begin_reminder_cycle(self):
 
         # Begin a fresh work -> break -> work cycle from a quiet state:
-        # reset counters, roll the per-day session counter, clear any
-        # leftover schedule/dismissal and start the work interval timer.
+        # fold any still-running session's elapsed time into today's total
+        # first (so a session is never lost from the report), reset the
+        # counters, roll the per-day session counter, clear any leftover
+        # schedule/dismissal and start the work interval timer.
+        self._accumulate_work_seconds()
+
         self._reminders_shown = 0
 
         self._clear_schedule(
@@ -3161,14 +3563,7 @@ class Companion(QWidget):
 
         self.settings["prompt_dismissed_on"] = ""
 
-        today = _today_str()
-
-        if self.settings.get(
-            "sessions_date",
-            ""
-        ) != today:
-            self.settings["sessions_date"] = today
-            self.settings["sessions_today"] = 0
+        self._roll_day_if_needed()
 
         self.settings["sessions_today"] = int(
             self.settings.get(
@@ -3251,13 +3646,17 @@ class Companion(QWidget):
         # user wants to start work; one performed mid-session just settles
         # quietly so the active cycle is left untouched. A walk-in that
         # was triggered by a schedule firing shows the dedicated
-        # scheduled-start prompt instead of the generic two-choice one.
+        # scheduled-start prompt instead of the generic one, and a manual
+        # show while a schedule is still pending shows the waiting
+        # confirmation so the pending time is never lost.
         if self._prompt_on_arrival:
             self._prompt_on_arrival = False
 
             if self._scheduled_prompt_on_arrival:
                 self._scheduled_prompt_on_arrival = False
                 self._show_scheduled_start_prompt()
+            elif self._scheduled_start_at is not None:
+                self._show_schedule_waiting()
             else:
                 self._show_start_work_prompt()
             return
@@ -3319,11 +3718,12 @@ class Companion(QWidget):
     def _show_start_work_prompt(self):
 
         # Enabled but no session running: the companion asks whether the
-        # user is starting work now. "Start now" and "Choose a time" are
-        # the only startup choices (no ✕: dismissing a starting point
-        # should never leave the character stood silently with an empty
-        # bubble). No timer runs until the user explicitly starts (or the
-        # schedule fires), and starting always asks how long to work.
+        # user is starting work now. One shared, child-simple prompt is
+        # used everywhere a work session may begin (startup, tray Show,
+        # settings re-enable): "Start working" asks how long and ✕ just
+        # hides the companion. No timer runs until the user explicitly
+        # starts (or a persisted schedule fires), and starting always asks
+        # how long to work.
         self._busy = False
 
         self._session_state = "waiting_to_start"
@@ -3342,43 +3742,6 @@ class Companion(QWidget):
             "energetic_encouraging"
         )
 
-        self.start_now_button.show()
-
-        self.choose_time_button.show()
-
-        self._set_choices_enabled(
-            True
-        )
-
-        self._sync_status_timer()
-
-    def _show_resting_start(self):
-
-        # Quiet, non-blocking steady state for returning users with no
-        # active session and no schedule. Unlike the first-run start
-        # prompt -- which asks "Ready to work?" with "Start now" /
-        # "Choose a time" -- this only offers the obvious "Start working"
-        # action, so launching the app never replays the full startup
-        # prompt automatically. The ✕ simply closes this bubble; nothing
-        # starts or schedules until the user acts explicitly.
-        self._busy = False
-
-        self._session_state = "waiting_to_start"
-
-        self.show()
-
-        self._hide_all_choices()
-
-        self._active_prompt = "resting"
-
-        self.message.setText(
-            CHARACTER_DIALOGUE["resting_prompt"]
-        )
-
-        self._set_character(
-            "standing"
-        )
-
         self.start_work_button.show()
 
         self.dialogue_panel.close_button.show()
@@ -3391,13 +3754,27 @@ class Companion(QWidget):
 
     def dismiss_start_prompt(self):
 
-        # The panel's ✕ close/cross action. It cleanly hides the whole
-        # companion: no timer is started, nothing is scheduled, and the
-        # prompt is NOT suppressed afterwards (the next launch, walk-in,
-        # or scheduled start asks again). Hiding instead of blanking the
-        # bubble means the character is never left stood silently with an
-        # empty dialogue. Use the tray's "Show Companion" to bring it
-        # back.
+        # The panel's ✕ close/cross action. Two distinct roles:
+        #
+        # 1) End-of-day report: the report stays on screen until the user
+        #    closes it; clicking ✕ cancels the 5-minute fallback and walks
+        #    the companion out.
+        if self._report_open:
+            self._report_open = False
+
+            self.report_hide_timer.stop()
+
+            self._complete_stop()
+
+            return
+
+        # 2) Start prompts (resting / scheduled / schedule-waiting): the
+        #    ✕ cleanly hides the whole companion; no timer is started,
+        #    nothing is scheduled, and the prompt is NOT suppressed
+        #    afterwards (the next launch, walk-in, or scheduled start
+        #    asks again). Hiding instead of blanking the bubble means the
+        #    character is never left stood silently with an empty
+        #    dialogue. Use the tray's "Show Companion" to bring it back.
         if self._busy:
             return
 
@@ -3425,9 +3802,9 @@ class Companion(QWidget):
 
     def _ask_duration(self, on_confirm):
 
-        # Always ask "How long do you want to work?" before starting a
+        # Always ask how long to work (and how long to break) before starting a
         # manual (or scheduled-start) work session, so the configured
-        # interval is never silently applied. Cancelling returns to the
+        # rhythm is never silently applied. Cancelling returns to the
         # prompt that was active and never starts a session.
         if self._busy:
             return
@@ -3467,6 +3844,15 @@ class Companion(QWidget):
                 dialog.selected_minutes()
             )
 
+            # The break duration is chosen together with the work duration
+            # and persisted, so accepting a break later simply runs for
+            # that length - no extra question when the break starts.
+            self.settings[
+                "break_duration_minutes"
+            ] = (
+                dialog.selected_break_minutes()
+            )
+
             self._begin_manual_work(
                 minutes
             )
@@ -3490,8 +3876,8 @@ class Companion(QWidget):
             self._show_scheduled_start_prompt()
         elif prompt == "schedule_waiting":
             self._show_schedule_waiting()
-        elif prompt == "resting":
-            self._show_resting_start()
+        elif prompt == "break_done":
+            self._show_break_done()
         elif prompt == "start":
             self._show_start_work_prompt()
         else:
@@ -3517,10 +3903,11 @@ class Companion(QWidget):
 
         # The user chose an explicit work duration: apply it as the work
         # interval (persisted so the next reminder/session uses the same
-        # length), cancel any pending schedule and today's dismissal, then
-        # reuse the existing cycle-start logic so the reminder timer,
-        # reminder routing, break flow, session counter and status panel
-        # are all untouched.
+        # length), cancel any pending schedule and today's dismissal,
+        # then show a short "Okay! Let's work for N minutes." confirmation
+        # before the existing cycle-start logic begins the session. Every
+        # start path funnels through here, so the session counter still
+        # increments exactly once per actual session start.
         self.settings[
             "work_interval_minutes"
         ] = int(
@@ -3542,10 +3929,19 @@ class Companion(QWidget):
         )
 
         self.message.setText(
-            CHARACTER_DIALOGUE["start_work_yes"]
+            CHARACTER_DIALOGUE["start_work_yes"].format(
+                minutes=int(
+                    minutes
+                )
+            )
         )
 
         self._hide_all_choices()
+
+        # Soft, upbeat chime confirms the session is starting.
+        play_sound(
+            "work_start.wav"
+        )
 
         self._set_character(
             "happy_thumbs_up"
@@ -3558,9 +3954,11 @@ class Companion(QWidget):
 
     def accept_start_work(self):
 
-        # "Start now" (startup + scheduled prompts) and "Start working"
-        # (pending-schedule + tray): every entry asks the duration
-        # question before anything starts.
+        # The single "Start working" entry used by every start prompt
+        # (startup, break-over, scheduled-start, pending schedule and the
+        # tray): the work duration is always asked before anything runs.
+        # Cancelling the duration question restores the prompt that was
+        # active.
         if self._busy:
             return
 
@@ -3651,7 +4049,6 @@ class Companion(QWidget):
             self.yes_button,
             self.no_button,
             self.stop_button,
-            self.start_now_button,
             self.choose_time_button,
             self.not_yet_button,
             self.start_work_button,
@@ -3674,7 +4071,9 @@ class Companion(QWidget):
 
         # Dialogue line to show while a break is running: the stable
         # chilled message for most of the break, switching once to a
-        # motivating line in the final few seconds.
+        # motivating line in the final few seconds. Once the break has
+        # actually elapsed, the break-over message is used instead so a
+        # stale slogan is never shown after the break ends.
         if self._session_state != "break":
             return self._break_message
 
@@ -3688,7 +4087,10 @@ class Companion(QWidget):
             ).total_seconds()
         )
 
-        if 0 < remaining <= 10:
+        if remaining <= 0:
+            return CHARACTER_DIALOGUE["break_done"]
+
+        if remaining <= 10:
             return CHARACTER_DIALOGUE["break_almost"]
 
         return self._break_message
@@ -3810,6 +4212,9 @@ class Companion(QWidget):
 
             return
 
+        # Whatever prompt armed the schedule, when it fires the companion
+        # walks in and asks whether to start work now — work never
+        # auto-starts at a scheduled time.
         self._set_schedule(
             target
         )
@@ -3874,11 +4279,11 @@ class Companion(QWidget):
 
     def _show_schedule_waiting(self):
 
-        # Parked while a schedule is pending: show the confirmation and
-        # keep the Start working button available. The schedule timer
-        # (plus the status line) keeps counting down in the background.
-        # This is the only remaining panel: the picker itself is already
-        # closed, and no duplicate dialogue is left behind.
+        # Parked while a schedule is pending: the picker has fully closed
+        # and the confirmation is shown (backed by the same stored time),
+        # with the Start working button and ✕ available. The schedule
+        # timer (plus the status line) keeps counting down in the
+        # background and is the only timer involved.
         self._busy = False
 
         self._active_prompt = "schedule_waiting"
@@ -3891,7 +4296,9 @@ class Companion(QWidget):
         self._hide_all_choices()
 
         self.message.setText(
-            CHARACTER_DIALOGUE["schedule_waiting"]
+            CHARACTER_DIALOGUE["schedule_confirm"].format(
+                time=self._schedule_label()
+            )
         )
 
         self._set_character(
@@ -3899,6 +4306,8 @@ class Companion(QWidget):
         )
 
         self.start_work_button.show()
+
+        self.dialogue_panel.close_button.show()
 
         self._set_choices_enabled(
             True
@@ -3919,10 +4328,15 @@ class Companion(QWidget):
 
     def _on_schedule_fire(self):
 
-        # The scheduled moment arrived: clear the stored schedule and walk
-        # in with the dedicated scheduled-start prompt ("It's time to
-        # work!" + work duration / Not yet) rather than a break reminder
-        # or the generic startup prompt.
+        # The scheduled moment arrived. Capture the fired time for the
+        # arrival message, clear the schedule, then walk in: the
+        # companion announces it is time to work and shows the dedicated
+        # scheduled-start prompt ("It's X! Ready to work?" with Start
+        # working / Not yet / ✕). Work never auto-starts.
+        self._scheduled_prompt_time = (
+            self._schedule_label()
+        )
+
         self._clear_schedule(
             persist=True
         )
@@ -3971,9 +4385,10 @@ class Companion(QWidget):
     def _show_scheduled_start_prompt(self):
 
         # Shown right after a scheduled start fires. The user is told it
-        # is time to work, then offered Start now (which asks the work
-        # duration) or Not yet (delay). Choosing a time never re-opens
-        # the scheduling screen here.
+        # is time to work ("It's 3:30 PM! Ready to work?") then offered
+        # Start working (which always asks the work duration) or Not yet
+        # (park quietly). Choosing a time never re-opens the scheduling
+        # screen here, and work never auto-starts.
         self._busy = False
 
         self._active_prompt = "scheduled"
@@ -3985,14 +4400,16 @@ class Companion(QWidget):
         self._hide_all_choices()
 
         self.message.setText(
-            CHARACTER_DIALOGUE["scheduled_prompt"]
+            CHARACTER_DIALOGUE["scheduled_prompt"].format(
+                time=self._scheduled_prompt_time
+            )
         )
 
         self._set_character(
             "energetic_encouraging"
         )
 
-        self.start_now_button.show()
+        self.start_work_button.show()
 
         self.not_yet_button.show()
 
@@ -4080,25 +4497,41 @@ class Companion(QWidget):
                 ""
             )
 
+    def _working_elapsed_seconds(self):
+
+        # Elapsed seconds of the CURRENTLY ACTIVE session for the status
+        # bar: 0:00 the moment a session starts, then counting up every
+        # second. The running marker (_status_started_at) holds the live
+        # portion; once the interval fully elapses (reminder fired but the
+        # break not started yet) the session contributes its full
+        # configured duration, and any "Later" extra time keeps accruing on
+        # top. Pure wall-clock reads - nothing here writes settings.
+        secs = 0
+
+        if self._interval_folded:
+            secs += self._work_interval_ms() // 1000
+
+        if self._status_started_at is not None:
+            secs += int(
+                (
+                    datetime.now()
+                    - self._status_started_at
+                ).total_seconds()
+            )
+
+        return secs
+
     def _status_tick(self):
 
         # Render the status line based on the current session. Pure
         # wall-clock reads; no settings writes happen here.
         if self._session_state == "working":
-            elapsed = ""
+            elapsed_secs = self._working_elapsed_seconds()
 
-            if self._status_started_at is not None:
-                secs = int(
-                    (
-                        datetime.now()
-                        - self._status_started_at
-                    ).total_seconds()
-                )
-
-                elapsed = "{:02d}:{:02d}".format(
-                    secs // 60,
-                    secs % 60
-                )
+            elapsed = "{:d}:{:02d}".format(
+                elapsed_secs // 60,
+                elapsed_secs % 60
+            )
 
             sessions = int(
                 self.settings.get(
@@ -4108,7 +4541,7 @@ class Companion(QWidget):
             )
 
             self.status_panel.set_text(
-                f"💪 Working · {elapsed} · Session {sessions}"
+                f"💪 Working · {elapsed} · Session {sessions} today"
             )
         elif self._session_state == "break":
             remaining = ""
@@ -4135,8 +4568,13 @@ class Companion(QWidget):
 
             # Show the motivating line once as the break winds down while
             # keeping the message stable (changing it every tick would
-            # make the bubble flicker).
-            if self._break_ends_at is not None and secs <= 10:
+            # make the bubble flicker). Once the break has actually
+            # elapsed (secs == 0) the break-over prompt is already on
+            # screen, so the message is never overwritten again here.
+            if (
+                self._break_ends_at is not None
+                and 0 < secs <= 10
+            ):
                 head = self._current_break_message()
 
                 if self.message.text() != head:
@@ -4145,7 +4583,7 @@ class Companion(QWidget):
                     )
         elif self._scheduled_start_at is not None:
             self.status_panel.set_text(
-                f"🕒 Starting at {self._schedule_label()}"
+                f"🕒 Waiting to start · Starts at {self._schedule_label()}"
             )
         else:
             self.status_panel.set_text(
@@ -4229,21 +4667,13 @@ class Companion(QWidget):
     def _complete_onboarding(self):
 
         # Called after the initial settings are saved. Show a short
-        # confirmation, then ask whether the user is starting work now
-        # (or settle into idle if reminders were explicitly disabled).
-        minutes = int(
-            self.settings.get(
-                "work_interval_minutes",
-                30
-            )
-        )
-
+        # "You're all set!" confirmation, then move to the shared start
+        # prompt so the brand-new user is asked (not forced) to begin
+        # working (or settle quietly if reminders were disabled).
         self._hide_all_choices()
 
         self.message.setText(
-            CHARACTER_DIALOGUE["onboarding_complete"].format(
-                minutes=minutes
-            )
+            CHARACTER_DIALOGUE["onboarding_complete"]
         )
 
         self._set_character(
@@ -4315,10 +4745,10 @@ class Companion(QWidget):
         self.no_button.hide()
         self.stop_button.hide()
         self.onboarding_settings_button.hide()
-        self.start_now_button.hide()
         self.choose_time_button.hide()
         self.not_yet_button.hide()
         self.start_work_button.hide()
+        self.done_button.hide()
         self.dialogue_panel.close_button.hide()
 
     # ========================================================
@@ -4378,6 +4808,11 @@ class Companion(QWidget):
 
     def _stop_after_walkout(self):
 
+        # Fold the current session's elapsed work time into the per-day
+        # total before the state is cleared, so stopping mid-session still
+        # counts the work done so far.
+        self._accumulate_work_seconds()
+
         self._stop_reminder_timer()
 
         self._stop_break_timer()
@@ -4410,6 +4845,11 @@ class Companion(QWidget):
         # timer is the single next step.
         self._stop_reminder_timer()
 
+        # The work interval just completed; fold its elapsed time into the
+        # per-day total. Idempotent: if the time was already folded
+        # (e.g. when a new session started), this adds nothing twice.
+        self._accumulate_work_seconds()
+
         self._reset_offscreen()
 
         self._busy = False
@@ -4429,32 +4869,11 @@ class Companion(QWidget):
 
         self._break_warned = False
 
-        # Show the break status + stable chilled dialogue, then auto-hide
-        # after a short peek so the character does not stand on screen for
-        # the whole break. The break timer keeps counting in the
-        # background; the companion returns when the break is over.
-        self._hide_all_choices()
-
-        self.message.setText(
-            self._break_message
-        )
-
-        self._set_character(
-            "standing"
-        )
-
-        self.current_x = self.final_x
-
-        self.move(
-            self.current_x,
-            self.final_y
-        )
-
-        self.show()
-
-        self.auto_hide_timer.start(
-            PEEK_AUTO_HIDE_MS
-        )
+        # The companion does NOT come back on screen during the break:
+        # the break runs entirely in the background (a manual "Show
+        # Companion" mid-break uses _quiet_stand and still shows the
+        # countdown). Only the break timer keeps counting.
+        self.hide()
 
         self._sync_status_timer()
 
@@ -4532,13 +4951,35 @@ class Companion(QWidget):
 
     def _show_break_done(self):
 
+        # The break timer fired. Ask "Ready to work again?" instead of
+        # auto-continuing: "Start working" (asks the work duration, then
+        # begins the next session) and "Done for today" shows the daily
+        # report and stops the cycle. Nothing starts or stops on its own.
         self._break_done_pending = False
+
+        # The break has fully elapsed and no session is running, so the
+        # prompt behaves like a plain start interaction from here.
+        self._session_state = "waiting_to_start"
+
+        self._active_prompt = "break_done"
 
         self.message.setText(
             CHARACTER_DIALOGUE["break_done"]
         )
 
         self._hide_all_choices()
+
+        self.start_work_button.show()
+
+        self.done_button.show()
+
+        # The choices are now live, so the busy guard set by
+        # _on_break_fire is released.
+        self._busy = False
+
+        self._set_choices_enabled(
+            True
+        )
 
         # Break is over: show the refreshed, happy pose and play the
         # break-over sound.
@@ -4550,50 +4991,25 @@ class Companion(QWidget):
             "break_over.wav"
         )
 
-        # Briefly hold the break-completed announcement, then move on to
-        # the next work interval (or stop the cycle).
-        QTimer.singleShot(
-            2500,
-            self._go_to_work_state
-        )
+        self._sync_status_timer()
 
-    def _go_to_work_state(self):
+    def _increment_session(self):
 
-        # Walk the character away / back into its resting position, then
-        # start the next work interval or stop the cycle entirely.
-        self._start_walk_out(
-            self._finish_break_and_work
-        )
+        # Roll the per-day session counter (reset if the day changed) and
+        # persist it. Every explicitly started work interval counts as one
+        # session, so a session started after a break is counted too.
+        self._roll_day_if_needed()
 
-    def _finish_break_and_work(self):
-
-        self._busy = False
-
-        if self._continue_after_break():
-            self._start_work_interval()
-        else:
-            self._stop_after_walkout()
-
-    def _continue_after_break(self):
-
-        if not self._should_prompt():
-            return False
-
-        mode = self.settings.get(
-            "reminder_mode",
-            "three_times"
-        )
-
-        if mode == "stop_after_one":
-            return False
-
-        if mode == "three_times":
-            return (
-                self._reminders_shown < 3
+        self.settings["sessions_today"] = int(
+            self.settings.get(
+                "sessions_today",
+                0
             )
+        ) + 1
 
-        # keep_reminding -> unlimited
-        return True
+        self._save_settings()
+
+        self._sync_status_timer()
 
     def _start_work_interval(self):
 
@@ -4614,6 +5030,9 @@ class Companion(QWidget):
         self._session_state = "working"
 
         self._status_started_at = datetime.now()
+
+        # A brand-new session: its interval has not elapsed yet.
+        self._interval_folded = False
 
         self._working_message = random.choice(
             WORKING_MESSAGES
@@ -4643,6 +5062,12 @@ class Companion(QWidget):
             return
 
         self._busy = True
+
+        # "Later" means the user keeps working past the already-counted
+        # interval: re-arm the running marker so the extra time accrues
+        # and is folded into the total when the break (or stop) happens.
+        if self._interval_folded:
+            self._status_started_at = datetime.now()
 
         self._set_choices_enabled(
             False
@@ -4805,7 +5230,7 @@ class Companion(QWidget):
         # "Later" is only a postponement of the CURRENT reminder
         # transaction. It is allowed as long as reminders are enabled and
         # never consumes an additional reminder-cycle slot; the number of
-        # actual cycles is bounded by _continue_after_break instead.
+        # actual cycles is decided at each break-over prompt instead.
         return self._should_prompt()
 
     # ========================================================
@@ -4815,6 +5240,23 @@ class Companion(QWidget):
     def _on_reminder_fire(self):
 
         self._stop_reminder_timer()
+
+        # The work interval ran to completion: count the session's exact
+        # chosen duration in today's total once here, so the report is the
+        # sum of every completed session (2 + 5 = 7 minutes) instead of a
+        # wall-clock measurement inflated by reminder/response time. The
+        # running marker is cleared so that downtime never adds onto it;
+        # if the user picks "Later", delay_reminder re-arms the marker so
+        # the extra working time keeps accruing from there.
+        if not self._interval_folded:
+
+            self._interval_folded = True
+
+            self._add_work_seconds(
+                self._work_interval_ms() // 1000
+            )
+
+            self._status_started_at = None
 
         # A pending peek walk-away must never swallow the reminder that is
         # arriving; the reminder return replaces it.
@@ -5022,26 +5464,54 @@ class Companion(QWidget):
             False
         )
 
+        # Fold any running session's elapsed work time into today's total
+        # before the report is drawn.
+        self._accumulate_work_seconds()
+
+        # No session runs anymore once the stop is accepted; settle into
+        # idle so the status line blanks out while the report is read.
+        self._session_state = "idle"
+
         self.message.setText(
-            CHARACTER_DIALOGUE["stop"]
+            self._report_text()
         )
 
         self._hide_all_choices()
 
-        # Look dramatically/sadly expressive before walking away, and
-        # play the stop sound.
+        # Proud, encouraging pose while the report is read; the stop sound
+        # confirms the action. The ✕ in the panel's top-right corner lets
+        # the user close the report themselves; as a fallback the
+        # companion slides away on its own after 5 minutes.
         self._set_character(
-            "dramatic_goodbye"
+            "happy_proud"
         )
 
         play_sound(
             "stop.wav"
         )
 
-        QTimer.singleShot(
-            1500,
-            self._complete_stop
+        self.dialogue_panel.close_button.show()
+
+        self._report_open = True
+
+        self._sync_status_timer()
+
+        self.report_hide_timer.start(
+            5
+            * 60
+            * 1000
         )
+
+    def _report_auto_slide(self):
+
+        # Fallback when the user never touches the ✕: slide the
+        # companion away after the 5-minute grace period.
+        if not self._report_open:
+            return
+
+        self._report_open = False
+
+        self._complete_stop()
 
     def _complete_stop(self):
 
@@ -5070,13 +5540,21 @@ class Companion(QWidget):
             self.no_button,
             self.stop_button,
             self.onboarding_settings_button,
-            self.start_now_button,
             self.choose_time_button,
             self.not_yet_button,
             self.start_work_button,
+            self.done_button,
         ):
             button.setEnabled(
                 enabled
+            )
+
+        # Choices have been shown/hidden for this prompt: refit the
+        # panel so its height matches however many button rows are now
+        # live (e.g. three on the break-over prompt).
+        if enabled:
+            self._fit_dialogue(
+                self.message.height()
             )
 
 
